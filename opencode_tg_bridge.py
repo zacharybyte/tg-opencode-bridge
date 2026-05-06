@@ -377,6 +377,10 @@ class OpenCodePool:
                 env["OPENCODE_SERVER_PASSWORD"] = password
                 env["OPENCODE_SERVER_USERNAME"] = "opencode"
             log.info("spawning opencode serve in %s on port %d", cwd, port)
+            # Inherit bridge's stderr so opencode's own error messages (e.g.
+            # "Configuration is invalid at ...") show up in the bridge log.
+            # Previously these were DEVNULL'd and we had to reproduce bugs
+            # by hand. stdout stays DEVNULL to avoid noise from normal logs.
             proc = subprocess.Popen(
                 [
                     self.cfg.opencode_binary,
@@ -389,7 +393,7 @@ class OpenCodePool:
                 cwd=cwd,
                 env=env,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=None,  # inherit bridge's stderr → visible in launchd err log
                 stdin=subprocess.DEVNULL,
                 start_new_session=True,
             )
