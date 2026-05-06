@@ -1,0 +1,31 @@
+# ===== Telegram =====
+# From @BotFather
+bot_token: "123456:ABCDEF..."
+
+# Who can use this bot. Numeric Telegram user IDs only.
+# Leave empty on first run (bot will reject everyone); /start shows your id,
+# then add it here and restart.
+allowed_user_ids:
+  - 123456789
+
+# ===== OpenCode =====
+# Default working directory for new chats (absolute or ~-expanded).
+default_cwd: "~"
+
+# opencode binary on $PATH (adjust if needed)
+opencode_binary: "opencode"
+
+# Optional: protect the local opencode serve instances with basic auth.
+# Since they only bind to 127.0.0.1, it's usually fine to leave empty.
+server_password: ""
+
+# Where to persist per-chat cwd state
+state_file: "~/.local/share/opencode-tg-bridge/state.yaml"
+
+# HTTP(S) proxy for reaching api.telegram.org. Leave empty for direct
+# connection. Use an http:// proxy (e.g. from clash / mihomo), NOT socks5://
+# - "" / "none"                    -> direct (default)
+# - "http://127.0.0.1:7897"        -> local HTTP proxy
+# NOTE: socks5:// tends to silently stall Telegram long-polling, so the
+# bridge refuses to inherit http_proxy/all_proxy from the environment.
+telegram_proxy: ""

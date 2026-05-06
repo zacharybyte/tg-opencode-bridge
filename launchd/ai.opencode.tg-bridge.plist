@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  OpenCode Telegram bridge launchd agent.
+  Label intentionally namespaced under ai.opencode so it won't clash with
+  e.g. a Claude or other AI bridge on the same machine.
+
+  Installation:
+    1. Edit the two __PLACEHOLDER__ values below, or just run install.sh.
+    2. cp launchd/ai.opencode.tg-bridge.plist ~/Library/LaunchAgents/
+    3. launchctl load -w ~/Library/LaunchAgents/ai.opencode.tg-bridge.plist
+    4. Check logs:   tail -f /tmp/opencode-tg-bridge.out /tmp/opencode-tg-bridge.err
+    Unload:          launchctl unload -w ~/Library/LaunchAgents/ai.opencode.tg-bridge.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.opencode.tg-bridge</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PROJECT_DIR__/.venv/bin/python</string>
+        <string>__PROJECT_DIR__/opencode_tg_bridge.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__PROJECT_DIR__</string>
+
+    <!--
+      launchd does NOT inherit your shell's env by default, so http_proxy /
+      all_proxy etc. are not set here — that's intentional, the bridge reads
+      telegram_proxy from config.yaml instead.
+    -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__HOME__/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>OPENCODE_TG_CONFIG</key>
+        <string>__PROJECT_DIR__/config.yaml</string>
+        <key>OPENCODE_TG_LOG</key>
+        <string>INFO</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/opencode-tg-bridge.out</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/opencode-tg-bridge.err</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
