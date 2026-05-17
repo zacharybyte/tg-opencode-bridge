@@ -253,15 +253,24 @@ class State:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.chat_cwd: dict[int, str] = {}
+        # cwd -> opencode session_id, so session continuity survives bridge restart.
+        self.cwd_session: dict[str, str] = {}
         if self.path.exists():
             with open(self.path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
             self.chat_cwd = {int(k): str(v) for k, v in (data.get("chat_cwd") or {}).items()}
+            self.cwd_session = {
+                str(k): str(v) for k, v in (data.get("cwd_session") or {}).items()
+            }
 
     def save(self) -> None:
         tmp = self.path.with_suffix(".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
-            yaml.safe_dump({"chat_cwd": self.chat_cwd}, f, allow_unicode=True)
+            yaml.safe_dump(
+                {"chat_cwd": self.chat_cwd, "cwd_session": self.cwd_session},
+                f,
+                allow_unicode=True,
+            )
         tmp.replace(self.path)
 
     def get_cwd(self, chat_id: int, default: str) -> str:
@@ -269,6 +278,16 @@ class State:
 
     def set_cwd(self, chat_id: int, cwd: str) -> None:
         self.chat_cwd[chat_id] = cwd
+        self.save()
+
+    def get_session(self, cwd: str) -> str | None:
+        return self.cwd_session.get(cwd)
+
+    def set_session(self, cwd: str, session_id: str | None) -> None:
+        if session_id:
+            self.cwd_session[cwd] = session_id
+        else:
+            self.cwd_session.pop(cwd, None)
         self.save()
 
 
@@ -302,8 +321,9 @@ class ServerEntry:
 
 
 class OpenCodePool:
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, state: "State | None" = None):
         self.cfg = cfg
+        self.state = state
         self.servers: dict[str, ServerEntry] = {}
         self._pool_lock = asyncio.Lock()
         # Local opencode servers are on 127.0.0.1; never route them through a
@@ -403,6 +423,14 @@ class OpenCodePool:
             except Exception:
                 await self._kill(entry)
                 raise
+            # Restore persisted session_id (if any) so /resume on bridge restart works.
+            # We don't pre-validate here; ensure_session / send_message will handle a
+            # stale id by clearing it and creating a new one.
+            if self.state is not None:
+                persisted = self.state.get_session(cwd)
+                if persisted:
+                    entry.session_id = persisted
+                    log.info("restored session %s for %s from state", persisted, cwd)
             self.servers[cwd] = entry
             return entry
 
@@ -413,6 +441,8 @@ class OpenCodePool:
                     f"{entry.base_url}/session/{entry.session_id}", auth=entry.auth
                 )
             entry.session_id = None
+            if self.state is not None:
+                self.state.set_session(entry.cwd, None)
         if entry.session_id:
             return entry.session_id
         title = f"TG: {Path(entry.cwd).name}"
@@ -421,6 +451,8 @@ class OpenCodePool:
         )
         r.raise_for_status()
         entry.session_id = r.json()["id"]
+        if self.state is not None:
+            self.state.set_session(entry.cwd, entry.session_id)
         log.info("created session %s for %s", entry.session_id, entry.cwd)
         return entry.session_id
 
@@ -442,6 +474,22 @@ class OpenCodePool:
                     json=body,
                     auth=entry.auth,
                 )
+                # If a restored session_id no longer exists on the server (e.g. the
+                # session DB was cleared, or opencode upgraded across an
+                # incompatible schema), retry once with a fresh session.
+                if r.status_code == 404:
+                    log.warning(
+                        "session %s gone on opencode side, recreating", session_id
+                    )
+                    entry.session_id = None
+                    if self.state is not None:
+                        self.state.set_session(entry.cwd, None)
+                    session_id = await self.ensure_session(entry)
+                    r = await self.client.post(
+                        f"{entry.base_url}/session/{session_id}/message",
+                        json=body,
+                        auth=entry.auth,
+                    )
                 r.raise_for_status()
                 data = r.json()
                 return _extract_text(data)
@@ -800,7 +848,7 @@ def main() -> None:
         sys.exit(2)
     cfg = Config.load(CONFIG_PATH)
     state = State(cfg.state_file)
-    pool = OpenCodePool(cfg)
+    pool = OpenCodePool(cfg, state)
     app = _build_app(cfg, state, pool)
 
     async def _shutdown(_app: Application) -> None:
